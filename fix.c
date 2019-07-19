@@ -5,13 +5,13 @@ char* str = "..dynsym..dynstr..hash..rel.dyn..rel.plt..plt..text@.ARM.extab..ARM
 char* str1 = "\0.dynsym\0.dynstr\0.hash\0.rel.dyn\0.rel.plt\0.plt\0.text@.ARM.extab\0.ARM.exidx\0.fini_array\0.init_array\0.dynamic\0.got\0.data\0.bss\0.shstrtab\0";
 Elf32_Shdr shdr[SHDRS] = { 0 };
 
-void get_elf_header(char* buffer,Elf32_Ehdr** pehdr) {
+void get_elf_header(char* buffer, Elf32_Ehdr** pehdr) {
 	int header_len = sizeof(Elf32_Ehdr);
 	memset(*pehdr, 0, header_len);
 	memcpy(*pehdr, (void*)buffer, header_len);
 }
 
-void get_program_table(Elf32_Ehdr ehdr,char* buffer,Elf32_Phdr** pphdr) {
+void get_program_table(Elf32_Ehdr ehdr, char* buffer, Elf32_Phdr** pphdr) {
 	int ph_size = ehdr.e_phentsize;
 	int ph_num = ehdr.e_phnum;
 	memset(*pphdr, 0, ph_size * ph_num);
@@ -25,8 +25,7 @@ long get_file_len(FILE* p) {
     return fsize; 
 }
 
-
-void get_Info(Elf32_Phdr* phdr, Elf32_Ehdr* pehdr, char* buffer) {
+void fix_section_table(Elf32_Phdr* phdr, Elf32_Ehdr* pehdr, char* buffer) {
 	Elf32_Dyn* dyn = NULL;
 	Elf32_Dyn* d = NULL;
 	Elf32_Phdr load = {0};
@@ -89,12 +88,10 @@ void get_Info(Elf32_Phdr* phdr, Elf32_Ehdr* pehdr, char* buffer) {
 			continue;
 		}
 	}
-	printf("dyn_off=%d, dyn_size=%d", dyn_off, dyn_size);
 	dyn = (Elf32_Dyn*)malloc(dyn_size);
 	memcpy(dyn, buffer + dyn_off, dyn_size);
 	i = 0;
 	for (; i < dyn_size / sizeof(Elf32_Dyn); i++) {
-		printf("tag=%d\n", dyn[i].d_tag);
 		switch(dyn[i].d_tag) {
 			case DT_SYMTAB:
 				printf("get DT_SYMTAB\n");
@@ -290,18 +287,45 @@ int main(int argc, char const* argv[]) {
 		printf("Open failed: fix.so\n");
 		goto error;
 	}
-	
+
+	printf("----------[get_elf_header]----------\n");
 	pehdr = (Elf32_Ehdr*)malloc(sizeof(Elf32_Ehdr));
 	get_elf_header(buffer, &pehdr);
-
+	printf("ehdr->e_type=\t\t%x\n", pehdr->e_type);
+	printf("ehdr->e_machine=\t%x\n", pehdr->e_machine);
+	printf("ehdr->e_version=\t%x\n", pehdr->e_version);
+	printf("ehdr->e_entry=\t\t%x\n", pehdr->e_entry);
+	printf("ehdr->e_phoff=\t\t%x\n", pehdr->e_phoff);
+	printf("ehdr->e_shoff=\t\t%x\n", pehdr->e_shoff);
+	printf("ehdr->e_flags=\t\t%x\n", pehdr->e_flags);
+	printf("ehdr->e_ehsize=\t\t%x\n", pehdr->e_ehsize);
+	printf("ehdr->e_phentsize=\t%x\n", pehdr->e_phentsize);
+	printf("ehdr->e_phnum=\t\t%x\n", pehdr->e_phnum);
+	printf("ehdr->e_shentsize=\t%x\n", pehdr->e_shentsize);
+	printf("ehdr->e_shnum=\t\t%x\n", pehdr->e_shnum);
+	printf("ehdr->e_shstrndx=\t%x\n", pehdr->e_shstrndx);
+	printf("\n");
+	
+	printf("----------[get_program_table]----------\n");
 	pphdr = (Elf32_Phdr*)malloc(pehdr->e_phentsize * pehdr->e_phnum);
 	get_program_table(*pehdr, buffer, &pphdr);
+	printf("phdr->e_type=\t%x\n", pphdr->p_type);
+	printf("phdr->p_offset=\t%x\n", pphdr->p_offset);
+	printf("phdr->p_vaddr=\t%x\n", pphdr->p_vaddr);
+	printf("phdr->p_paddr=\t%x\n", pphdr->p_paddr);
+	printf("phdr->p_filesz=\t%x\n", pphdr->p_filesz);
+	printf("phdr->p_memsz=\t%x\n", pphdr->p_memsz);
+	printf("phdr->p_flags=\t%x\n", pphdr->p_flags);
+	printf("\n");
 
-	get_Info(pphdr, pehdr, buffer);
+	printf("----------[fix_section_table]----------\n");
+	fix_section_table(pphdr, pehdr, buffer);
 	
 	pehdr->e_shnum = SHDRS;
 	pehdr->e_shstrndx = SHDRS - 1;
 	pehdr->e_shoff = shdr[STRTAB].sh_offset + strlen(str) + 1;
+
+	printf("----------[Create Fixed ELF]----------\n");
 	memcpy(buffer, pehdr, sizeof(Elf32_Ehdr));
 	memcpy(buffer + shdr[GOT].sh_offset, buffer + shdr[GOT].sh_offset + 0x1000, shdr[GOT].sh_size);
 	//memset(buffer + shdr[DATA].sh_offset, 0, shdr[DATA].sh_offset);
@@ -309,7 +333,7 @@ int main(int argc, char const* argv[]) {
 	memcpy(buffer + pehdr->e_shoff, shdr, pehdr->e_shentsize * pehdr->e_shnum);
 	flen = shdr[STRTAB].sh_offset + strlen(str) + 1 + SHDRS * sizeof(Elf32_Shdr);
 	fwrite(buffer, sizeof(char) * flen, 1, fw);
-
+	printf("----------[Done]----------");
 error:
 	if(fw != NULL)
 		fclose(fw);
